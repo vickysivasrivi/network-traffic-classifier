@@ -1,0 +1,113 @@
+schema: '2.0'
+stages:
+  preprocess:
+    cmd: python src/preprocess.py
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: acf928b43f089e74039fc8dba08e4dd7.dir
+      size: 884645759
+      nfiles: 8
+    - path: src/preprocess.py
+      hash: md5
+      md5: 80c36ea3cd643dc7bbe642956beea027
+      size: 11097
+    params:
+      params.yaml:
+        data.processed_dir: data/processed
+        data.random_state: 42
+        data.raw_dir: data/raw
+        data.test_size: 0.2
+        preprocessing.nan_threshold: 0.5
+        preprocessing.smote_random_state: 42
+    outs:
+    - path: data/processed/X_test.joblib
+      hash: md5
+      md5: 7a6622780888e61b3a65ac455211529b
+      size: 317043681
+    - path: data/processed/X_train.joblib
+      hash: md5
+      md5: 0868c80d63ae043dc5848fb66565d2d7
+      size: 840000241
+    - path: data/processed/y_test.joblib
+      hash: md5
+      md5: d02befde904afdeca730c0803db73fad
+      size: 18117578
+    - path: data/processed/y_train.joblib
+      hash: md5
+      md5: 57149f57fe6208fe58926bc3da11b862
+      size: 24000786
+  train:
+    cmd: python src/train.py
+    deps:
+    - path: data/processed/X_test.joblib
+      hash: md5
+      md5: 7a6622780888e61b3a65ac455211529b
+      size: 317043681
+    - path: data/processed/X_train.joblib
+      hash: md5
+      md5: 0868c80d63ae043dc5848fb66565d2d7
+      size: 840000241
+    - path: data/processed/y_test.joblib
+      hash: md5
+      md5: d02befde904afdeca730c0803db73fad
+      size: 18117578
+    - path: data/processed/y_train.joblib
+      hash: md5
+      md5: 57149f57fe6208fe58926bc3da11b862
+      size: 24000786
+    - path: src/train.py
+      hash: md5
+      md5: feb8da801dae4dde90cab08153ae6cac
+      size: 10625
+    params:
+      params.yaml:
+        data.random_state: 42
+        train:
+          random_state: 42
+          n_jobs: -1
+          random_forest:
+            n_estimators: 100
+            max_depth: 20
+            min_samples_split: 5
+          xgboost:
+            n_estimators: 100
+            max_depth: 6
+            learning_rate: 0.1
+            subsample: 0.8
+          lightgbm:
+            n_estimators: 100
+            max_depth: 6
+            learning_rate: 0.1
+            num_leaves: 63
+    outs:
+    - path: metrics.json
+      hash: md5
+      md5: cb13fc25e72c561c3c909c60ec1ca5cc
+      size: 220
+  evaluate:
+    cmd: python src/evaluate.py
+    deps:
+    - path: data/processed/X_test.joblib
+      hash: md5
+      md5: 7a6622780888e61b3a65ac455211529b
+      size: 317043681
+    - path: data/processed/y_test.joblib
+      hash: md5
+      md5: d02befde904afdeca730c0803db73fad
+      size: 18117578
+    - path: models/
+      hash: md5
+      md5: 7f79b121d0e928451b8efc4155e0943f.dir
+      size: 3175381
+      nfiles: 2
+    - path: src/evaluate.py
+      hash: md5
+      md5: c7346fbdd5b15eed933ab094aa4ebea7
+      size: 7058
+    outs:
+    - path: reports/
+      hash: md5
+      md5: 71a9d6076bef79a2b79cfddd74660b26.dir
+      size: 242972
+      nfiles: 3

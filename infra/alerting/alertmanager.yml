@@ -1,0 +1,31 @@
+# =============================================================================
+# alertmanager.yml — Alertmanager receiver configuration.
+#
+# In production replace the webhook_url with a real Slack/PagerDuty endpoint.
+# For local development this config routes all alerts to a catch-all receiver
+# that simply logs them (no external notification is sent).
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: "default"
+
+receivers:
+  - name: "default"
+    webhook_configs:
+      - url: "http://localhost:9093/api/v1/alerts"   # placeholder — replace with real endpoint
+        send_resolved: true
+
+inhibit_rules:
+  # Suppress lower-severity alerts when the API is already down.
+  - source_matchers:
+      - alertname="APIDown"
+    target_matchers:
+      - alertname=~"APIHighErrorRate|HighPredictionLatency"
+    equal: ["instance"]

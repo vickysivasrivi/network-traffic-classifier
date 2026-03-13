@@ -1,0 +1,12 @@
+# Inference-only dependencies for the Docker image.
+# Excludes all training, data-versioning, visualisation, and test packages.
+# Used exclusively by the Dockerfile builder stage.
+fastapi>=0.100.0
+uvicorn[standard]>=0.28.0
+numpy>=2.1.0
+scikit-learn>=1.5.0
+xgboost>=2.0.3
+joblib>=1.3.2
+shap>=0.45.0
+prometheus-fastapi-instrumentator>=0.9.0
+evidently>=0.4.33

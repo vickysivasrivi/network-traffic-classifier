@@ -1,0 +1,77 @@
+name: Manual Retrain Trigger
+
+# ============================================================================
+# Manually trigger a model retraining run via GitHub Actions.
+#
+# This workflow:
+#   1. Checks out the repo and installs Python dependencies.
+#   2. Runs the Prefect retrain flow (drift-check → DVC repro → promote).
+#
+# Trigger in the GitHub UI:
+#   Actions → "Manual Retrain Trigger" → Run workflow → set force if needed.
+#
+# Notes:
+#   - Requires DVC remote credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+#     to pull raw data and push updated artifacts.
+#   - Requires the inference API to be reachable at API_BASE_URL for drift check.
+#     In a real setup, this would point to the ECS service URL.
+#   - For CI smoke-tests without a live API, set force=true to skip drift check.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force retrain even if no drift is detected"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+env:
+  PYTHON_VERSION: "3.13"
+  MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+  API_BASE_URL: ${{ vars.API_BASE_URL || 'http://localhost:8000' }}
+
+jobs:
+  retrain:
+    name: Retrain & Promote
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure DVC remote credentials
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          dvc remote modify myremote access_key_id "$AWS_ACCESS_KEY_ID"
+          dvc remote modify myremote secret_access_key "$AWS_SECRET_ACCESS_KEY"
+
+      - name: Pull processed data from DVC remote
+        run: dvc pull data/processed
+
+      - name: Run retrain flow
+        run: |
+          python -c "
+          from src.retrain_flow import retrain_flow
+          retrain_flow(force='${{ inputs.force }}' == 'true')
+          "
+
+      - name: Upload metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrain-metrics
+          path: metrics.json

@@ -1,0 +1,43 @@
+# =============================================================================
+# .dockerignore — excludes files from the Docker build context.
+#
+# Without this file Docker would send ~2 GB of training data to the daemon
+# before a single COPY instruction runs, making every build painfully slow.
+# =============================================================================
+
+# --- Large training data (DO NOT ship in the inference image) ----------------
+data/raw/
+data/processed/X_train.joblib
+data/processed/X_test.joblib
+data/processed/y_train.joblib
+data/processed/y_test.joblib
+
+# --- MLflow experiment tracking artifacts ------------------------------------
+mlruns/
+mlflow.db
+tmp_artifacts/
+
+# --- Git / DVC metadata ------------------------------------------------------
+.git/
+.gitignore
+.dvc/
+.dvcignore
+
+# --- Python byte-code caches -------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Development and CI artifacts --------------------------------------------
+reports/
+.pytest_cache/
+.env
+*.env.*
+
+# --- Not needed in the inference image ---------------------------------------
+src/
+tests/
+
+# --- Claude / IDE config files -----------------------------------------------
+.claude/

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+venv/
+.venv/
+
+# Data files — large training sets tracked by DVC
+data/raw/
+data/processed/X_train.joblib
+data/processed/X_test.joblib
+data/processed/y_train.joblib
+data/processed/y_test.joblib
+# (scaler.joblib, label_encoder.joblib, feature_names.txt ARE committed — needed for Docker build)
+
+# MLflow local DB (dev artifact, not useful in repo)
+mlflow.db
+
+# MLflow run artifacts (large)
+mlruns/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code workspace (local only)
+.claude/
+
+# Terraform — provider binaries and local state (never commit these)
+infra/terraform/.terraform/
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.backup
+
+# DVC evaluate outputs (generated, not source)
+reports/
+tmp_artifacts/
+/reports
+

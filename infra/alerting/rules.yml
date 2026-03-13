@@ -1,0 +1,82 @@
+# =============================================================================
+# Prometheus alerting rules for the Network Threat Detection API.
+#
+# Loaded by Prometheus via:
+#   rule_files:
+#     - /etc/prometheus/rules.yml
+#
+# View active alerts at: http://localhost:9090/alerts
+# =============================================================================
+
+groups:
+  - name: network-threat-api
+    interval: 30s
+    rules:
+
+      # -----------------------------------------------------------------------
+      # API availability
+      # -----------------------------------------------------------------------
+      - alert: APIDown
+        expr: up{job="network-threat-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Network Threat API is down"
+          description: >
+            The API scrape target {{ $labels.instance }} has been unreachable
+            for more than 1 minute.
+
+      # -----------------------------------------------------------------------
+      # Error rate
+      # -----------------------------------------------------------------------
+      - alert: APIHighErrorRate
+        expr: >
+          (
+            rate(http_requests_total{job="network-threat-api",status=~"5.."}[5m])
+            /
+            rate(http_requests_total{job="network-threat-api"}[5m])
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP 5xx error rate (>5%)"
+          description: >
+            More than 5 % of requests to {{ $labels.instance }} have returned
+            5xx responses over the last 5 minutes.
+
+      # -----------------------------------------------------------------------
+      # Data drift
+      # -----------------------------------------------------------------------
+      - alert: DataDriftDetected
+        expr: network_threat_drift_detected == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data drift detected in prediction features"
+          description: >
+            Evidently reported data drift on {{ $labels.instance }}.
+            Consider triggering the Prefect retraining flow.
+
+      # -----------------------------------------------------------------------
+      # Prediction latency
+      # -----------------------------------------------------------------------
+      - alert: HighPredictionLatency
+        expr: >
+          histogram_quantile(
+            0.95,
+            rate(http_request_duration_seconds_bucket{
+              job="network-threat-api",
+              handler="/predict"
+            }[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 prediction latency exceeds 2 s"
+          description: >
+            The 95th-percentile latency for /predict on {{ $labels.instance }}
+            has been above 2 seconds for 5 consecutive minutes.

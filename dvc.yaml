@@ -1,0 +1,85 @@
+# dvc.yaml — DVC Pipeline Definition
+#
+# WHY THIS FILE EXISTS:
+#   DVC pipelines are like Makefiles for ML. Each "stage" declares:
+#     - cmd:    the command to run
+#     - deps:   what it depends on (code file, data, params)
+#     - outs:   what it produces
+#     - params: which params.yaml values it uses
+#
+#   DVC tracks all deps and outs with checksums.
+#   When you run `dvc repro`, DVC checks: "has anything changed?"
+#     - If params.yaml changed → re-run that stage
+#     - If code changed → re-run that stage
+#     - If nothing changed → skip (use cached output)
+#   This is MUCH faster than always re-running everything.
+#
+# OUTPUT STRATEGY:
+#   Two categories of outputs co-exist:
+#     - Git-tracked (small, required for Docker build without DVC):
+#         data/processed/scaler.joblib
+#         data/processed/label_encoder.joblib
+#         data/processed/feature_names.txt
+#         models/best_model.joblib
+#         models/best_model_name.txt
+#         metrics.json
+#     - DVC-tracked (large split arrays, excluded from Git via .gitignore):
+#         data/processed/X_train.joblib  (~802 MB)
+#         data/processed/X_test.joblib
+#         data/processed/y_train.joblib
+#         data/processed/y_test.joblib
+#         reports/  (evaluation plots)
+#
+# RUNNING THE PIPELINE:
+#   dvc repro              # run all stages (skip unchanged ones)
+#   dvc repro preprocess   # run only the preprocess stage
+#   dvc dag                # visualise the dependency graph
+
+stages:
+  preprocess:
+    cmd: python src/preprocess.py
+    deps:
+      - src/preprocess.py        # if this script changes → re-run
+      - data/raw                 # if raw data changes → re-run
+    params:
+      - params.yaml:             # which specific params this stage uses
+          - data.raw_dir
+          - data.processed_dir
+          - data.test_size
+          - data.random_state
+          - preprocessing.nan_threshold
+          - preprocessing.smote_random_state
+    outs:
+      # Large train/test arrays — DVC-tracked, git-ignored (~802 MB total)
+      - data/processed/X_train.joblib
+      - data/processed/X_test.joblib
+      - data/processed/y_train.joblib
+      - data/processed/y_test.joblib
+      # scaler.joblib, label_encoder.joblib, feature_names.txt are git-tracked
+      # (needed by the Dockerfile without requiring a DVC remote pull)
+
+  train:
+    cmd: python src/train.py
+    deps:
+      - src/train.py
+      - data/processed/X_train.joblib   # depends on preprocess output
+      - data/processed/X_test.joblib
+      - data/processed/y_train.joblib
+      - data/processed/y_test.joblib
+    params:
+      - params.yaml:
+          - data.random_state
+          - train
+    metrics:
+      - metrics.json:            # DVC tracks metrics for comparison
+          cache: false           # false = commit this file to Git
+
+  evaluate:
+    cmd: python src/evaluate.py
+    deps:
+      - src/evaluate.py
+      - data/processed/X_test.joblib
+      - data/processed/y_test.joblib
+      - models/
+    outs:
+      - reports/                 # confusion matrices, ROC curves (git-ignored)

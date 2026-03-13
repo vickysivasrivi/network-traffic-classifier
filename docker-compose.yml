@@ -1,0 +1,76 @@
+# =============================================================================
+# docker-compose.yml — local development, testing, and monitoring stack.
+#
+# Services:
+#   api        — FastAPI inference server (port 8000)
+#   prometheus — Metrics scraper          (port 9090)
+#   grafana    — Dashboard visualisation  (port 3000)
+#
+# Usage:
+#   docker-compose up --build    # build image and start all services
+#   docker-compose up            # start with cached image
+#   docker-compose down          # stop and remove containers
+#   docker ps                    # check STATUS (api should show "healthy" after ~90s)
+#
+# Access:
+#   http://localhost:8000/docs   → FastAPI Swagger UI
+#   http://localhost:8000/prometheus → Prometheus metrics text
+#   http://localhost:9090        → Prometheus UI
+#   http://localhost:3000        → Grafana dashboards (admin / admin)
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Inference API
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test:
+        [
+          "CMD", "python", "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — scrapes /prometheus on the API every 15 s
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/alerting/rules.yml:/etc/prometheus/rules.yml:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Grafana — pre-provisioned with Prometheus datasource + dashboard
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped

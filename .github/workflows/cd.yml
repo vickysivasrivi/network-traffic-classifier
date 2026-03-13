@@ -1,0 +1,147 @@
+name: CD — Build, Push to ECR, Deploy to ECS Fargate
+
+# =============================================================================
+# Triggers only on push to the main branch.
+#
+# Pipeline steps:
+#   1. Configure AWS credentials from repository secrets
+#   2. Log in to Amazon ECR
+#   3. Build + tag Docker image with :latest and :<short-sha>
+#   4. Push both tags to ECR
+#   5. Render a new ECS task definition revision with the new image URI
+#   6. Deploy the new revision to ECS Fargate and wait for stability
+#
+# Required GitHub Secrets (Settings > Secrets and variables > Actions):
+#   AWS_ACCESS_KEY_ID      — IAM user access key
+#   AWS_SECRET_ACCESS_KEY  — IAM user secret key
+#
+# Required AWS resources (created by infra/setup_aws.sh):
+#   ECR repository  : network-threat-classifier
+#   ECS cluster     : network-threat-cluster
+#   ECS service     : network-threat-service
+#   Task definition : network-threat-api
+#   CloudWatch log  : /ecs/network-threat-api
+# =============================================================================
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: network-threat-classifier
+  ECS_CLUSTER: network-threat-cluster
+  ECS_SERVICE: network-threat-service
+  CONTAINER_NAME: network-threat-api
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Checkout the repository
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Configure AWS credentials
+      #
+      # aws-actions/configure-aws-credentials reads the secrets and sets:
+      #   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+      # in the environment. All subsequent AWS CLI / boto3 calls use them.
+      # -----------------------------------------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -----------------------------------------------------------------------
+      # Step 3: Authenticate to Amazon ECR
+      #
+      # This action calls `aws ecr get-login-password` and pipes it to
+      # `docker login`, so subsequent `docker push` commands are authorised.
+      # The registry URL is exposed as an output for use in the build step.
+      # -----------------------------------------------------------------------
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -----------------------------------------------------------------------
+      # Step 4: Build, tag, and push the Docker image to ECR
+      #
+      # Two tags are pushed:
+      #   :<short-sha>  — immutable, unique per commit; enables clean rollbacks
+      #   :latest       — always points to the most recently deployed image
+      #
+      # The short SHA (first 7 chars of the full 40-char git SHA) is used in
+      # CloudWatch log stream names, making it easy to correlate a running
+      # task with the exact source commit.
+      # -----------------------------------------------------------------------
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-7)
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$SHORT_SHA"
+
+          echo "Building: $IMAGE_URI"
+          docker build \
+            -t "$IMAGE_URI" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            .
+
+          echo "Pushing $IMAGE_URI"
+          docker push "$IMAGE_URI"
+
+          echo "Pushing :latest"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+          # Export the versioned image URI for the task definition render step
+          echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # Step 5: Render a new ECS task definition with the updated image URI
+      #
+      # aws-actions/amazon-ecs-render-task-definition reads the JSON template
+      # from infra/ecs_task_definition.json, replaces the `image` field for the
+      # named container, and writes a temporary rendered file.
+      #
+      # This means the task definition JSON in the repository always uses the
+      # :latest tag as a placeholder; the actual deployed revision gets the
+      # immutable :<short-sha> tag injected here at deployment time.
+      # -----------------------------------------------------------------------
+      - name: Render ECS task definition with new image
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: infra/ecs_task_definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      # -----------------------------------------------------------------------
+      # Step 6: Register the new task definition and update the ECS service
+      #
+      # aws-actions/amazon-ecs-deploy-task-definition:
+      #   - Registers the rendered task definition as a new revision
+      #   - Updates the ECS service to use the new revision (rolling update)
+      #   - wait-for-service-stability: true — the workflow step blocks until
+      #     ECS reports the service is stable (new tasks healthy, old drained)
+      #
+      # If the new task fails its healthcheck (GET /health), ECS rolls back
+      # automatically AND this GitHub Actions step reports failure.
+      # This prevents a silent bad deploy from being marked green.
+      # -----------------------------------------------------------------------
+      - name: Deploy to ECS Fargate
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
